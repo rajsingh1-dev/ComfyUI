@@ -193,13 +193,14 @@ def create_block_external_middleware():
 
 
 class PromptServer():
-    def __init__(self, loop):
+    def __init__(self, loop, baseurl: str = ""):
         PromptServer.instance = self
 
         mimetypes.init()
         mimetypes.add_type('application/javascript; charset=utf-8', '.js')
         mimetypes.add_type('image/webp', '.webp')
 
+        self.baseurl = baseurl
         self.user_manager = UserManager()
         self.model_file_manager = ModelFileManager()
         self.custom_node_manager = CustomNodeManager()
@@ -988,30 +989,47 @@ class PromptServer():
         self.client_session = aiohttp.ClientSession(timeout=timeout)
 
     def add_routes(self):
+        if self.baseurl and not self.baseurl.startswith("/"):
+            self.baseurl = "/" + self.baseurl
+        self.baseurl = self.baseurl.rstrip("/")
+
         self.user_manager.add_routes(self.routes)
         self.model_file_manager.add_routes(self.routes)
         self.custom_node_manager.add_routes(self.routes, self.app, nodes.LOADED_MODULE_DIRS.items())
+
+        # Add /internal subapp (adjusted with self.baseurl if needed)
+        self.app.add_subapp(f"{self.baseurl}/internal", self.internal_routes.get_app())
         self.subgraph_manager.add_routes(self.routes, nodes.LOADED_MODULE_DIRS.items())
         self.app.add_subapp('/internal', self.internal_routes.get_app())
 
-        # Prefix every route with /api for easier matching for delegation.
-        # This is very useful for frontend dev server, which need to forward
-        # everything except serving of static files.
-        # Currently both the old endpoints without prefix and new endpoints with
-        # prefix are supported.
+        # Prefix /api to all non-static routes
         api_routes = web.RouteTableDef()
         for route in self.routes:
-            # Custom nodes might add extra static routes. Only process non-static
-            # routes to add /api prefix.
             if isinstance(route, web.RouteDef):
-                api_routes.route(route.method, "/api" + route.path)(route.handler, **route.kwargs)
+                prefixed_path = f"{self.baseurl}/api{route.path}"
+                api_routes.route(route.method, prefixed_path)(route.handler, **route.kwargs)
+
+        # Add both /api-prefixed and raw routes (with self.baseurl)
         self.app.add_routes(api_routes)
-        self.app.add_routes(self.routes)
 
-        # Add routes from web extensions.
+        self.baseurl_routes = web.RouteTableDef()
+        for route in self.routes:
+            if isinstance(route, web.RouteDef):
+                prefixed_path = f"{self.baseurl}{route.path}"
+                self.baseurl_routes.route(route.method, prefixed_path)(route.handler, **route.kwargs)
+        self.app.add_routes(self.baseurl_routes)
+
+        # Web extensions
         for name, dir in nodes.EXTENSION_WEB_DIRS.items():
-            self.app.add_routes([web.static('/extensions/' + name, dir)])
+            self.app.add_routes([
+                web.static(f"{self.baseurl}/extensions/{name}", dir)
+            ])
 
+        workflow_templates_path = FrontendManager.templates_path()
+        if workflow_templates_path:
+            self.app.add_routes([
+                web.static(f"{self.baseurl}/templates", workflow_templates_path)
+            ])
         installed_templates_version = FrontendManager.get_installed_templates_version()
         use_legacy_templates = True
         if installed_templates_version:
@@ -1045,8 +1063,9 @@ class PromptServer():
                 web.static('/docs', embedded_docs_path)
             ])
 
+        # Mount main frontend (typically index.html etc.)
         self.app.add_routes([
-            web.static('/', self.web_root),
+            web.static(self.baseurl + "/", self.web_root),
         ])
 
     def get_queue_info(self):
@@ -1202,7 +1221,10 @@ class PromptServer():
                 address_print = address
 
             if verbose:
-                logging.info("To see the GUI go to: {}://{}:{}".format(scheme, address_print, port))
+                if self.baseurl and not self.baseurl.startswith("/"):
+                    self.baseurl = "/" + self.baseurl
+                self.baseurl = self.baseurl.rstrip("/")
+                logging.info("To see the GUI go to: {}://{}:{}{}/".format(scheme, address_print, port, self.baseurl))
 
         if call_on_start is not None:
             call_on_start(scheme, self.address, self.port)
