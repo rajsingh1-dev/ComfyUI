@@ -1025,11 +1025,6 @@ class PromptServer():
                 web.static(f"{self.baseurl}/extensions/{name}", dir)
             ])
 
-        workflow_templates_path = FrontendManager.templates_path()
-        if workflow_templates_path:
-            self.app.add_routes([
-                web.static(f"{self.baseurl}/templates", workflow_templates_path)
-            ])
         installed_templates_version = FrontendManager.get_installed_templates_version()
         use_legacy_templates = True
         if installed_templates_version:
@@ -1049,7 +1044,7 @@ class PromptServer():
             workflow_templates_path = FrontendManager.legacy_templates_path()
             if workflow_templates_path:
                 self.app.add_routes([
-                    web.static('/templates', workflow_templates_path)
+                    web.static(f"{self.baseurl}/templates", workflow_templates_path)
                 ])
         else:
             handler = FrontendManager.template_asset_handler()
