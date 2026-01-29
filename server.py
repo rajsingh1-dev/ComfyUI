@@ -1033,7 +1033,7 @@ class PromptServer():
             workflow_templates_path = FrontendManager.legacy_templates_path()
             if workflow_templates_path:
                 self.app.add_routes([
-                    web.static('/templates', workflow_templates_path)
+                    web.static(f"{self.baseurl}/templates", workflow_templates_path)
                 ])
         else:
             handler = FrontendManager.template_asset_handler()
