@@ -1050,7 +1050,7 @@ class PromptServer():
         else:
             handler = FrontendManager.template_asset_handler()
             if handler:
-                self.app.router.add_get("/templates/{path:.*}", handler)
+                self.app.router.add_get(f"{self.baseurl}/templates/{{path:.*}}", handler)
 
         # Serve embedded documentation from the package
         embedded_docs_path = FrontendManager.embedded_docs_path()
